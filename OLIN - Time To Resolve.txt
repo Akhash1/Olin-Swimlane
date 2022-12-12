@@ -1,0 +1,55 @@
+from swimlane import Swimlane
+import requests
+import json
+from datetime import datetime
+import re
+import pytz
+
+requests.packages.urllib3.disable_warnings()
+now = datetime.now()
+
+#getting inputs from swimlane
+swimlane_user = sw_context.inputs['swimlane_user']
+swimlane_pwd = sw_context.inputs['swimlane_pwd']
+record_id = sw_context.inputs['tracking_id']
+
+#swimlane configuration
+swimlane = Swimlane(sw_context.config['InternalSwimlaneUrl'],swimlane_user,swimlane_pwd,verify_ssl=False)
+
+# Retrieve App by name
+app = swimlane.apps.get(name='Olin Case Management')
+
+#retrive records based on record id
+record_from_tracking = app.records.get(tracking_id = record_id)
+assert record_from_tracking
+
+#getting First created time of record
+swimlane_first_created =record_from_tracking['Swimlane First Created']
+
+#Retriving time to resolved to check whether time is calculated or not
+check_time_to_resolve = record_from_tracking['Time To Resolve']
+threat_detection = record_from_tracking['Threat Detections']
+Holded_Minutes = record_from_tracking['Holded Time']
+
+#modifying the records
+if check_time_to_resolve is None:
+  #calculate time to resolve
+  start_time = record_from_tracking['Swimlane First Created']
+  naive_start_time = start_time.replace(tzinfo=None)
+  Time_calculation = int((now - naive_start_time).total_seconds())
+  Time_calculation_as_minute = int(Time_calculation/60)
+  #Total resolved time after subtracting the holded minutes, if the case didn't hold , it's set as 0.
+  Total_Time_To_Resolve = Time_calculation_as_minute - Holded_Minutes
+  if threat_detection == "True Positive" or threat_detection == "False Positive" or threat_detection == "Benign Positive":
+    app.records.bulk_modify(
+      record_from_tracking,
+      values={
+        'Time To Resolve':(Total_Time_To_Resolve),
+      })
+  elif threat_detection == "Duplicate":
+    app.records.bulk_modify(
+      record_from_tracking,
+      values={
+        'Time To Resolve':(Total_Time_To_Resolve),
+        'Duplicate Case Resolve Status':'Duplicate Case Resolved'
+      })
